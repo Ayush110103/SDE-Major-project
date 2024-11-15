@@ -1,0 +1,372 @@
+name: test
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+env:
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    # necessary for windows
+    shell: bash
+
+jobs:
+  build_aarch64_musl:
+    if: ${{ false }} # disable for now
+    strategy:
+      fail-fast: false
+      matrix:
+        # a list of all the targets
+        include:
+          - TARGET: aarch64-unknown-linux-musl
+            OS: macos-latest
+            RUST: nightly
+    runs-on: ${{ matrix.OS }}
+    env:
+      TARGET: ${{ matrix.TARGET }}
+      OS: ${{ matrix.OS }}
+      # Disable full debug symbol generation to speed up CI build and keep memory down
+      # "1" means line tables only, which is useful for panic tracebacks.
+      RUSTFLAGS: "-C debuginfo=1"
+    steps:
+      - uses: actions/checkout@v2
+      - name: Cache Homebrew
+        uses: actions/cache@v2
+        with:
+          path: |
+            ~/Library/Caches/Homebrew/aarch64-unknown-linux-musl--*
+            ~/Library/Caches/Homebrew/zstd--*
+          key: brew-cache-$TARGET-
+      - name: Cache Cargo
+        uses: actions/cache@v2
+        with:
+          # these represent dependencies downloaded by cargo
+          # and thus do not depend on the OS, arch nor rust version.
+          path: ~/$TARGET/.cargo
+          key: cargo-cache-$TARGET-
+      - name: Cache Rust dependencies
+        uses: actions/cache@v2
+        with:
+          # these represent compiled steps of both dependencies and arrow
+          # and thus are specific for a particular OS, arch and rust version.
+          path: target
+          key: ${{ runner.os }}-${{ matrix.TARGET }}-target-cache-${{ matrix.RUST }}-
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          override: true
+          components: rustfmt
+      # - name: update all third-party dependencies
+      #   run: |
+      #     cargo update
+      - uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            src:
+              - 'benchmarks/**'
+              - 'flock/**'
+              - 'flock-cli/**'
+              - 'flock-function/**'
+              - 'playground/**'
+      - name: Install and configure dependencies
+        run: |
+          # some additional configuration for cross-compilation on macos
+          mkdir -p ~/$TARGET/.cargo
+          cat >~/$TARGET/.cargo/config <<EOF
+          [target.aarch64-unknown-linux-gnu]
+          linker = "aarch64-linux-gnu-gcc"
+          [target.x86_64-apple-darwin]
+          rustflags = [
+            "-C", "link-arg=-undefined",
+            "-C", "link-arg=dynamic_lookup",
+          ]
+          [target.aarch64-apple-darwin]
+          rustflags = [
+            "-C", "link-arg=-undefined",
+            "-C", "link-arg=dynamic_lookup",
+            "-C", "target-feature=+crt-static",
+            "-C", "link-arg=-lgcc",
+          ]
+          EOF
+      - name: Install rust target
+        if: steps.changes.outputs.src == 'true'
+        run: rustup target add $TARGET
+      - name: Run build
+        if: steps.changes.outputs.src == 'true'
+        run: |
+          brew tap messense/macos-cross-toolchains
+          brew install zstd
+          brew install aarch64-unknown-linux-musl
+          export CC_aarch64_unknown_linux_musl=aarch64-unknown-linux-musl-gcc
+          export CXX_aarch64_unknown_linux_musl=aarch64-unknown-linux-musl-g++
+          export AR_aarch64_unknown_linux_musl=aarch64-unknown-linux-musl-ar
+          export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-unknown-linux-musl-gcc
+          export CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-Zgcc-ld=lld"
+          cargo +nightly build --verbose --target $TARGET
+        env:
+          CARGO_HOME: "~/$TARGET/.cargo"
+          CARGO_TARGET_DIR: "target"
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        # a list of all the targets
+        include:
+          - TARGET: x86_64-unknown-linux-gnu
+            OS: ubuntu-latest
+            RUST: nightly
+          - TARGET: x86_64-unknown-linux-musl
+            OS: ubuntu-latest
+            RUST: nightly
+          - TARGET: aarch64-unknown-linux-gnu
+            OS: ubuntu-latest
+            RUST: nightly
+    # if: github.ref != 'refs/heads/master'
+    runs-on: ${{ matrix.OS }}
+    env:
+      TARGET: ${{ matrix.TARGET }}
+      OS: ${{ matrix.OS }}
+      # Disable full debug symbol generation to speed up CI build and keep memory down
+      # "1" means line tables only, which is useful for panic tracebacks.
+      RUSTFLAGS: "-C debuginfo=1"
+    steps:
+      - uses: actions/checkout@v2
+      - name: Cache Cargo
+        uses: actions/cache@v2
+        with:
+          # these represent dependencies downloaded by cargo
+          # and thus do not depend on the OS, arch nor rust version.
+          path: ~/.cargo
+          key: cargo-cache-
+      - name: Cache Rust dependencies
+        uses: actions/cache@v2
+        with:
+          # these represent compiled steps of both dependencies and arrow
+          # and thus are specific for a particular OS, arch and rust version.
+          path: target
+          key: ${{ runner.os }}-${{ matrix.TARGET }}-target-cache-${{ matrix.RUST }}-
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly-2022-01-20
+          override: true
+          components: rustfmt
+      # - name: update all third-party dependencies
+      #   run: |
+      #     cargo update
+      - uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            src:
+              - 'benchmarks/**'
+              - 'flock/**'
+              - 'flock-cli/**'
+              - 'flock-function/**'
+              - 'playground/**'
+      - name: Install and configure dependencies
+        run: |
+          # dependencies are only needed on ubuntu as that's the only place where
+          # we make cross-compilation
+          if [[ $OS =~ ^ubuntu.*$ ]]; then
+            sudo apt install musl-tools
+            sudo apt-get install -qq crossbuild-essential-arm64 crossbuild-essential-armhf
+          fi
+          # some additional configuration for cross-compilation on linux
+          cat >~/.cargo/config <<EOF
+          [target.aarch64-unknown-linux-gnu]
+          linker = "aarch64-linux-gnu-gcc"
+          [target.x86_64-apple-darwin]
+          rustflags = [
+            "-C", "link-arg=-undefined",
+            "-C", "link-arg=dynamic_lookup",
+          ]
+          [target.aarch64-apple-darwin]
+          rustflags = [
+            "-C", "link-arg=-undefined",
+            "-C", "link-arg=dynamic_lookup",
+          ]
+          EOF
+      - name: Install rust target
+        if: steps.changes.outputs.src == 'true'
+        run: rustup target add $TARGET
+      - name: Run build
+        if: steps.changes.outputs.src == 'true'
+        run: |
+          rustup default nightly-2022-01-20
+          cargo build --verbose --target $TARGET
+        env:
+          CARGO_HOME: "~/.cargo"
+          CARGO_TARGET_DIR: "target"
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        # a list of all the targets
+        include:
+          - TARGET: x86_64-unknown-linux-gnu
+            OS: ubuntu-latest
+            RUST: nightly
+    runs-on: ${{ matrix.OS }}
+    needs: build
+    env:
+      TARGET: ${{ matrix.TARGET }}
+      OS: ${{ matrix.OS }}
+      # Disable full debug symbol generation to speed up CI build and keep memory down
+      # "1" means line tables only, which is useful for panic tracebacks.
+      RUSTFLAGS: "-C debuginfo=1"
+    steps:
+      - uses: actions/checkout@v2
+      - name: Cache Cargo
+        uses: actions/cache@v2
+        with:
+          path: ~/.cargo
+          # this key equals the ones on `build` for re-use
+          key: cargo-cache-
+      - name: Cache Rust dependencies
+        uses: actions/cache@v2
+        with:
+          path: target
+          # this key equals the ones on `build` for re-use
+          key: ${{ runner.os }}-${{ matrix.TARGET }}-target-cache-${{ matrix.RUST }}-
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly-2022-01-20
+          override: true
+          components: rustfmt
+      # - name: update all third-party dependencies
+      #   run: |
+      #     cargo update
+      - uses: dorny/paths-filter@v2
+        id: changes
+        with:
+          filters: |
+            src:
+              - 'benchmarks/**'
+              - 'flock/**'
+              - 'flock-cli/**'
+              - 'flock-function/**'
+              - 'playground/**'
+      - name: Install rust target
+        if: steps.changes.outputs.src == 'true'
+        run: rustup target add $TARGET
+      - name: Run build
+        if: steps.changes.outputs.src == 'true'
+        run: |
+          rustup default nightly-2022-01-20
+          cargo test --target $TARGET
+        env:
+          CARGO_HOME: "~/.cargo"
+          CARGO_TARGET_DIR: "target"
+#   coverage:
+#     name: Coverage
+#     runs-on: ubuntu-latest
+#     steps:
+#       - uses: actions/checkout@v2
+#       - name: Cache Cargo
+#         uses: actions/cache@v2
+#         with:
+#           path: |
+#             ~/.cargo/registry
+#             ~/.cargo/git
+#             target
+#           # this key is not equal because coverage uses different compilation flags.
+#           key: ${{ runner.os }}-cargo-target-coverage-cache
+#       - uses: actions-rs/toolchain@v1
+#         with:
+#           toolchain: nightly
+#           override: true
+#           components: rustfmt, clippy
+#       - name: update umd-arrow
+#         run: |
+#           cargo update --package arrow
+#           cargo update --package datafusion
+#       - name: Run cargo-tarpaulin
+#         uses: actions-rs/tarpaulin@v0.1
+#         with:
+#           version: '0.15.0'
+#           args: '-- --test-threads 8'
+#       - name: Upload to codecov.io
+#         uses: codecov/codecov-action@v1.0.2
+#         with:
+#           token: ${{secrets.CODECOV_TOKEN}}
+#       - name: Archive code coverage results
+#         uses: actions/upload-artifact@v1
+#         with:
+#           name: code-coverage-report
+#           path: cobertura.xml
+
+# deploy on pushes to master branch
+# assumes aws credentials (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)
+# are configured in travis settings
+# see https://serverless.com/framework/docs/providers/aws/guide/credentials/
+# for more information
+# deploy:
+#   if: github.ref == 'refs/heads/master'
+#   runs-on: ubuntu-latest
+#   strategy:
+#     matrix:
+#       target:
+#         - x86_64-unknown-linux-gnu
+#   steps:
+#     - name: Checkout
+#       uses: actions/checkout@v2
+#     - name: Cache cargo and xargo
+#       uses: actions/cache@v2
+#       with:
+#         path: |
+#           ~/.cargo/registry
+#           ~/.cargo/git
+#           ~/.xargo
+#           target
+#         key: ${{ runner.os }}-cargo-flock-${{ hashFiles('**/Cargo.lock') }}
+#     - name: Install nightly
+#       uses: actions-rs/toolchain@v1
+#       with:
+#         toolchain: nightly
+#         override: true
+#       if: steps.cache.outputs.cache-hit != 'true'
+#     - name: Install xargo
+#       run: |
+#         rustup override set nightly
+#         rustup component add rust-src
+#         cargo install xargo
+#       if: steps.cache.outputs.cache-hit != 'true'
+#     - name: Build
+#       run: |
+#         rustup override set nightly
+#         xargo update --package arrow
+#         xargo build --target ${{ matrix.target }} --release
+#     - name: Configure AWS credentials
+#       uses: aws-actions/configure-aws-credentials@v1
+#       with:
+#         aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+#         aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+#         aws-region: us-east-1
+#     - name: AWS lambda package
+#       run: |
+#         for f in $LAMBDA_NAME; do
+#           mv ./target/x86_64-unknown-linux-gnu/release/$f ./bootstrap;
+#           strip --strip-all ./bootstrap;
+#           zip -j $f.zip ./bootstrap;
+#           GET_FUNCTION_NAME=$(aws lambda list-functions --query \
+#             "Functions[?FunctionName=='${f}'].FunctionName[]" --output text);
+#           echo "${GET_FUNCTION_NAME}";
+#           if [ "${GET_FUNCTION_NAME}" == "${f}" ]; then
+#             aws lambda update-function-code --function-name $f --zip-file fileb://./$f.zip;
+#             echo "Congratulations! You've successfully upgraded Flock.";
+#           else
+#             aws lambda create-function --function-name $f \
+#               --runtime provided.al2 \
+#               --role $AWS_LAMBDA_ROLE \
+#               --handler doesnt.matter \
+#               --zip-file fileb://./$f.zip \
+#               --environment Variables={RUST_BACKTRACE=1} \
+#               --tracing-config Mode=Active;
+#             echo "Congratulations! You've successfully deployed Flock.";
+#           fi
+#         done

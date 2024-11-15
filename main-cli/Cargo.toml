@@ -1,0 +1,38 @@
+[package]
+authors = [ "Gang Liao <gangliao@cs.umd.edu>" ]
+categories = [ "command-line-interface", "command-line-utilities" ]
+description = "A command-line REPL for Flock that integrates into existing cli workflows"
+edition = "2021"
+keywords = [ "Flock", "repl", "client", "cli" ]
+license = "AGPL-3.0"
+name = "flock-cli"
+version = "0.3.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[features]
+cli = [ "rustyline" ]
+default = [ "cli" ]
+
+[dependencies]
+anyhow = "1.0.51"
+benchmarks = { path = "../benchmarks" }
+clap = { version = "3.0.0", features = [ "cargo" ] }
+ctrlc = "3.1.1"
+env_logger = "^0.9"
+flock = { path = "../flock" }
+futures = "0.3.12"
+lazy_static = "1.4.0"
+log = "0.4.14"
+rusoto_core = { git = "https://github.com/flock-lab/rusoto", branch = "flock" }
+rusoto_lambda = { git = "https://github.com/flock-lab/rusoto", branch = "flock" }
+rusoto_s3 = { git = "https://github.com/flock-lab/rusoto", branch = "flock" }
+rust-ini = "0.18"
+rustyline = { version = "9.0.0", optional = true }
+sqlparser = { version = "0.14.0", features = [ "json_example" ] }
+tokio = { version = "1.4", features = [ "macros", "io-util", "sync", "rt-multi-thread" ] }
+zip = "0.5.12"
+
+[[bin]]
+name = "flock-cli"
+path = "src/main.rs"

@@ -1,0 +1,113 @@
+[flock]
+
+discription = "Flock: A Practical Serverless Streaming SQL Query Engine"
+
+license = "Copyright (c) 2020-present, UMD Database Group. The library, examples, and all source code are released AGPL-3.0 License."
+
+production = false
+
+# Flock data source function name
+data_source = "flock_datasource"
+
+# S3 configuration
+[s3]
+# S3 bucket name to store the generic functions
+bucket = "flock-lab"
+
+# S3 key prefix to store the generic function code
+x86_64_key = "flock_x86_64"
+arm_64_key = "flock_arm64"
+
+# AWS configuration
+[aws]
+
+# Amazon Linux 2
+runtime = "provided.al2"
+
+# The Amazon Resource Name (ARN) of the function's execution role.
+role = "flock"
+
+# Availability zone
+availability_zone = "us-east-1a"
+
+# Subnet ID
+subnet_id = "subnet-c4cc0f9b"
+
+# Security group ID
+security_group_id = "sg-00e4f30f882ad9150"
+
+# Lambda configuration
+[lambda]
+
+# Environment context name (key) in the function payload's hashmap
+environment = "flock_context"
+
+# Default target batch size (16 KB)
+target_batch_size = 16384
+
+# Default raw record batch size in the payload (512 KB)
+payload_batch_size = 524288
+
+# Lambda function group's concurrency or size, and the concurrency
+# of each function in the group is 1
+concurrency = 16
+
+aggregate_threshold = 10485760
+join_threshold = 5242880
+regular_threshold = 20971520
+
+# The granularity of each type of data in the payload
+async_granule = 3096
+sync_granule = 74304
+
+# Error retries in AWS Lambda
+max_invoke_retries = 200
+
+# Maximum backoff in milliseconds
+max_backoff = 500
+
+# Timeout for the function
+timeout = "120"
+
+# Memory size for the different purposes of the function.
+regular_memory_size = "512"
+offline_aggreate_memory_size = "10240"
+realtime_aggreate_memory_size = "2480"
+
+# EFS configuration
+[efs]
+
+# A string of up to 64 ASCII characters that Amazon EFS uses to ensure idempotent creation.
+creation_token = "flock-efs"
+
+# The clients using the access point can only access the root directory and below.
+root_directory = "/flock"
+
+# local mount directory
+mount_path = "/mnt/flock"
+
+# The operating system user and group applied to all file system requests made using the access point.
+group_id = 1000
+user_id = 1000
+
+# The access point permissions for the root directory.
+permissions = "0777"
+
+# Nexmark configuration
+[nexmark]
+
+q13_s3_side_input_key = "nexmark_q13_side_input"
+q4_s3_key = "nexmark_q4_plan"
+q6_s3_key = "nexmark_q6_plan"
+q9_s3_key = "nexmark_q9_plan"
+s3_key = "nexmark"
+
+# YSB configuration
+[ysb]
+
+s3_key = "ysb"
+
+[datafusion]
+
+# Customize target partitions
+target_partitions = 8
